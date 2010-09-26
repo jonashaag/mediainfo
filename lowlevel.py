@@ -45,7 +45,16 @@ def parse_inform_output(output, inform):
                 name, typefunc = inform_param, lambda x:x
             else:
                 name, typefunc = inform_param
-            sec[name] = typefunc(value)
+            try:
+                sec[name] = typefunc(value)
+            except ValueError:
+                if value == '':
+                    # if `value` is an empty string, try `typefunc` without
+                    # arguments. useful e.g. for `typefunc` == `int`,
+                    # which does not allow empty strings as argument.
+                    sec[name] = typefunc()
+                else:
+                    raise
         sections[section] = sec
     return sections
 
@@ -57,14 +66,10 @@ def get_metadata(filename, **inform):
         elif isinstance(params, dict):
             inform[section] = params.items()
 
-    print repr(format_inform(**inform))
-
     cmd = ['mediainfo', '--Inform=file://%s' % STDIN_DEVICE, filename]
     proc = Popen(cmd, stdout=PIPE, stderr=PIPE, stdin=PIPE)
     stdout, stderr = proc.communicate(input=format_inform(**inform))
     stdout, stderr = map(str.strip, [stdout, stderr])
-    print repr(stdout)
-    print repr(parse_inform_output(stdout, inform))
 
     if proc.returncode != 0 or stderr:
         raise ExecutionError(cmd, proc.returncode, stderr)
