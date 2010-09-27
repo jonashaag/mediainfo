@@ -1,4 +1,5 @@
 import os
+import sys
 from future_builtins import zip
 from subprocess import Popen, PIPE
 try:
@@ -14,6 +15,9 @@ PARAM_SEP = chr(2)
 
 class ExecutionError(Exception):
     """ Raised if a MediaInfo command returns an exit code other than 0. """
+
+def _raise(*exc_info):
+    raise exc_info[0], exc_info[1], exc_info[2]
 
 def format_inform(**inform):
     sections = []
@@ -41,6 +45,7 @@ def parse_inform_output(output, inform):
         values = params.split(PARAM_SEP)
         sec = {}
         for inform_param, value in zip(inform[section], values):
+            # TODO: put that typefunc stuff away
             if isinstance(inform_param, basestring):
                 name, typefunc = inform_param, lambda x:x
             else:
@@ -48,13 +53,17 @@ def parse_inform_output(output, inform):
             try:
                 sec[name] = typefunc(value)
             except ValueError:
+                value_error = sys.exc_info()
                 if value == '':
                     # if `value` is an empty string, try `typefunc` without
                     # arguments. useful e.g. for `typefunc` == `int`,
                     # which does not allow empty strings as argument.
-                    sec[name] = typefunc()
+                    try:
+                        sec[name] = typefunc()
+                    except TypeError:
+                        _raise(*value_error)
                 else:
-                    raise
+                    _raise(*value_error)
         sections[section] = sec
     return sections
 
