@@ -2,7 +2,9 @@ import unittest
 import mediainfo
 from functools import partial
 from mediainfo import lowlevel
-from mediainfo.lowlevel import SECTION_SEP, PARAM_SEP
+from mediainfo.lowlevel import SECTION_SEP, PARAM_SEP, \
+                               _format_inform, _prepare_inform, \
+                               _parse_inform_output, _lambda_x_x
 
 from os.path import join, dirname, normpath, basename, abspath, realpath
 from os import pardir, listdir
@@ -22,7 +24,7 @@ def slugify(s):
     for char in s:
         if char == '.':
             char = '_'
-        if char in 'abcdefghijklmnopqrstuvxyz012345679_':
+        if char in 'abcdefghijklmnopqrstuvwxzy012345679_':
             buf.append(char)
     if buf[0] in '0123456789':
         buf.pop(0)
@@ -33,21 +35,52 @@ class LowlevelTestcase(unittest.TestCase):
         self.assert_(mediainfo.get_metadata)
         self.assert_(mediainfo.ExecutionError)
 
-    def test_format_inform(self):
-        self.assertEqual(lowlevel.format_inform(), SECTION_SEP)
-        self.assertEqual(lowlevel.format_inform(Foo=[]),
-                         'Foo;Foo:' + SECTION_SEP)
-        self.assertEqual(lowlevel.format_inform(
-            Hello_World=['Blah', 'Blubb', ('Name', type)]),
-            'Hello_World;Hello_World:%Blah%' + PARAM_SEP + '%Blubb%'
-            + PARAM_SEP + '%Name%'
-            + SECTION_SEP
+    def test_pepare_inform(self):
+        self.assertRaises(AssertionError, _prepare_inform, {})
+        self.assertEqual(
+            _prepare_inform({'Foo' : 'A'}),
+            {'Foo' : [('A', _lambda_x_x)]}
         )
-        self.assertEqual(lowlevel.format_inform(
-            A=('a', 'b', 'c'), B=['d', ('fg', int), 'h']),
+        self.assertEqual(
+            _prepare_inform({'Foo' : ['A', ('B', int)]}),
+            {'Foo' : [('A', _lambda_x_x), ('B', int)]}
+        )
+        self.assertEqual(
+            _prepare_inform({'Blah' : {'hello' : float, 'foo' : None},
+                             'Fizz' : ['A', ('b', object), 'B']}),
+            {'Blah' : {'hello' : float, 'foo' : None}.items(),
+             'Fizz' : [('A', _lambda_x_x), ('b', object), ('B', _lambda_x_x)]}
+        )
+
+    def test_parse_inform_output(self):
+        _safe_int = lambda s: -1 if s == '' else int(s)
+        self.assertEqual(_parse_inform_output('', object()), {})
+        query = {'A' : [('A', int), 'B', ('C', str)],
+                 'B' : [('X', float), ('Y', _safe_int)]}
+        query = _prepare_inform(query)
+        outp = 'A:-1337' + PARAM_SEP + 'asdf' + PARAM_SEP + 'ghjk' + \
+                SECTION_SEP + 'B:3.14' + PARAM_SEP + '' + SECTION_SEP
+        self.assertEqual(_parse_inform_output(outp, query),
+                         {'A' : {'A' : -1337, 'B' : 'asdf', 'C' : 'ghjk'},
+                          'B' : {'X' : 3.14, 'Y' : -1}})
+        outp2 = outp.replace('-1337', 'somethinginvalid')
+        self.assertRaises(ValueError, _parse_inform_output, outp2, query)
+        outp3 = outp2.replace('somethinginvalid', '')
+        self.assertEqual(_parse_inform_output(outp3, query)['A']['A'], 0)
+
+    def test_format_inform(self):
+        self.assertEqual(_format_inform({}), SECTION_SEP)
+        self.assertEqual(_format_inform({'Foo' : []}),
+                         'Foo;Foo:' + SECTION_SEP)
+        self.assertEqual(
+            _format_inform({ 'Hello_World' : [('Blah', None), ('Name', type)]}),
+            'Hello_World;Hello_World:%Blah%' + PARAM_SEP + '%Name%' + SECTION_SEP
+        )
+        self.assertEqual(_format_inform({
+            'A' : [('a', None), ('b', None), ('c', None)],
+            'B' : [('d', None), ('fg', int)]}),
             'A;A:%a%' + PARAM_SEP + '%b%' + PARAM_SEP + '%c%' + SECTION_SEP +
-            '\r\n' + 'B;B:%d%' + PARAM_SEP + '%fg%' + PARAM_SEP + '%h%'
-            + SECTION_SEP
+            '\r\n' + 'B;B:%d%' + PARAM_SEP + '%fg%' + SECTION_SEP
         )
 
     query = {
@@ -77,7 +110,7 @@ class LowlevelTestcase(unittest.TestCase):
         self.assert_(meta['General'][not_type + 'Count'] == 0)
         for attr, attrtype in self.query[type_].iteritems():
             self.assertEqual(type(meta[type_][attr]), type(attrtype()))
-            self.assert_(meta[type_][attr])
+            self.assert_(meta[type_][attr], 'missing %s:%s key' % (type_, attr))
         self.assert_(not_type not in meta)
 
     def _test_invalid(self, file):

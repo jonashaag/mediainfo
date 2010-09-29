@@ -16,24 +16,36 @@ PARAM_SEP = chr(2)
 class ExecutionError(Exception):
     """ Raised if a MediaInfo command returns an exit code other than 0. """
 
+_lambda_x_x = lambda x:x
+
 def _raise(*exc_info):
     raise exc_info[0], exc_info[1], exc_info[2]
 
-def format_inform(**inform):
-    sections = []
-    for section_name, params in inform.iteritems():
-        section = []
-        section.extend((param if isinstance(param, basestring) else param[0])
-                       for param in params)
-        sections.append((section_name, section))
+def _prepare_inform(inform):
+    assert inform
+    sections = {}
+    for section, dirty_params in inform.iteritems():
+        if isinstance(dirty_params, dict):
+            sections[section] = dirty_params.items()
+        elif isinstance(dirty_params, basestring):
+            sections[section] = [(dirty_params, _lambda_x_x)]
+        else:
+            sections[section] = params = []
+            for param in dirty_params:
+                if isinstance(param, basestring):
+                    params.append((param, _lambda_x_x))
+                else:
+                    params.append(param)
+    return sections
 
+def _format_inform(inform):
     return (SECTION_SEP + '\r\n').join(
         '{section};{section}:'.format(section=section_name) +
-        PARAM_SEP.join(r'%{param}%'.format(param=param) for param in params)
-        for section_name, params in sections
+        PARAM_SEP.join(r'%{param}%'.format(param=param) for param, _ in params)
+        for section_name, params in inform.iteritems()
     ) + SECTION_SEP
 
-def parse_inform_output(output, inform):
+def _parse_inform_output(output, inform):
     sections = {}
     may_loop = True
     for section in output.split(SECTION_SEP):
@@ -44,43 +56,33 @@ def parse_inform_output(output, inform):
         section, params = section.split(':', 1)
         values = params.split(PARAM_SEP)
         sec = {}
-        for inform_param, value in zip(inform[section], values):
-            # TODO: put that typefunc stuff away
-            if isinstance(inform_param, basestring):
-                name, typefunc = inform_param, lambda x:x
-            else:
-                name, typefunc = inform_param
+        for (param_name, param_type), value in zip(inform[section], values):
             try:
-                sec[name] = typefunc(value)
+                value = param_type(value)
             except ValueError:
                 value_error = sys.exc_info()
                 if value == '':
-                    # if `value` is an empty string, try `typefunc` without
-                    # arguments. useful e.g. for `typefunc` == `int`,
+                    # if `value` is an empty string, try `param_type` without
+                    # arguments. useful e.g. for `param_type` == `int`,
                     # which does not allow empty strings as argument.
                     try:
-                        sec[name] = typefunc()
+                        value = param_type()
                     except TypeError:
                         _raise(*value_error)
                 else:
                     _raise(*value_error)
+            sec[param_name] = value
         sections[section] = sec
     return sections
 
 def get_metadata(filename, **inform):
-    assert inform
-    for section, params in inform.iteritems():
-        if isinstance(params, basestring):
-            inform[section] = [params]
-        elif isinstance(params, dict):
-            inform[section] = params.items()
-
+    inform = _prepare_inform(inform)
     cmd = ['mediainfo', '--Inform=file://%s' % STDIN_DEVICE, filename]
     proc = Popen(cmd, stdout=PIPE, stderr=PIPE, stdin=PIPE)
-    stdout, stderr = proc.communicate(input=format_inform(**inform))
+    stdout, stderr = proc.communicate(input=_format_inform(inform))
     stdout, stderr = map(str.strip, [stdout, stderr])
 
     if proc.returncode != 0 or stderr:
         raise ExecutionError(cmd, proc.returncode, stderr)
 
-    return parse_inform_output(stdout, inform)
+    return _parse_inform_output(stdout, inform)
