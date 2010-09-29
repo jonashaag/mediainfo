@@ -67,7 +67,7 @@ def _parse_inform_output(output, inform):
                     # which does not allow empty strings as argument.
                     try:
                         value = param_type()
-                    except TypeError:
+                    except (ValueError, TypeError):
                         _raise(*value_error)
                 else:
                     _raise(*value_error)

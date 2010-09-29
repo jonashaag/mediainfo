@@ -1,4 +1,4 @@
-import unittest
+import unittest2 as unittest
 import mediainfo
 from functools import partial
 from mediainfo import lowlevel
@@ -63,10 +63,19 @@ class LowlevelTestcase(unittest.TestCase):
         self.assertEqual(_parse_inform_output(outp, query),
                          {'A' : {'A' : -1337, 'B' : 'asdf', 'C' : 'ghjk'},
                           'B' : {'X' : 3.14, 'Y' : -1}})
-        outp2 = outp.replace('-1337', 'somethinginvalid')
-        self.assertRaises(ValueError, _parse_inform_output, outp2, query)
-        outp3 = outp2.replace('somethinginvalid', '')
+        outp2 = outp.replace('-1337', 'xxx')
+        self.assertRaisesRegexp(
+            ValueError, "invalid literal for int\(\) with base 10: 'xxx'",
+            _parse_inform_output, outp2, query
+        )
+        outp3 = outp.replace('-1337', '')
         self.assertEqual(_parse_inform_output(outp3, query)['A']['A'], 0)
+        def valerr(x):
+            raise ValueError("hello-there")
+        self.assertRaisesRegexp(
+            ValueError, "hello-there",
+            _parse_inform_output, 'A:', {'A' : [('x', valerr)]}
+        )
 
     def test_format_inform(self):
         self.assertEqual(_format_inform({}), SECTION_SEP)
