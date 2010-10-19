@@ -1,22 +1,17 @@
-import unittest2 as unittest
-import mediainfo
+from os.path import basename
+import unittest as unittest # FIXME
 from functools import partial
-from mediainfo import lowlevel
+
+import mediainfo
 from mediainfo.lowlevel import SECTION_SEP, PARAM_SEP, \
                                _format_inform, _prepare_inform, \
                                _parse_inform_output, _lambda_x_x
+try:
+    import json
+except ImportError:
+    import simplejson as json
 
-from os.path import join, dirname, normpath, basename, abspath, realpath
-from os import pardir, listdir
-def _get_files(*j):
-    dir = join(*j)
-    return [join(dir, file) for file in listdir(dir)]
-
-_this_dir = abspath(dirname(realpath(__file__)))
-TEST_FILES_DIR = abspath(join(_this_dir, pardir, 'test_data'))
-IMAGE_TEST_FILES = _get_files(TEST_FILES_DIR, 'images')
-VIDEO_TEST_FILES = _get_files(TEST_FILES_DIR, 'videos')
-INVALID_TEST_FILES = _get_files(TEST_FILES_DIR, 'invalid')
+TESTFILES = json.load(open('test_files.json'))
 
 def slugify(s):
     s = s.lower()
@@ -69,7 +64,7 @@ class LowlevelTestcase(unittest.TestCase):
             _parse_inform_output, outp2, query
         )
         outp3 = outp.replace('-1337', '')
-        self.assertEqual(_parse_inform_output(outp3, query)['A']['A'], 0)
+        self.assertEqual(_parse_inform_output(outp3, query)['A']['A'], None)
         def valerr(x):
             raise ValueError("hello-there")
         self.assertRaisesRegexp(
@@ -94,14 +89,15 @@ class LowlevelTestcase(unittest.TestCase):
 
     query = {
         'General' : {
-            'VideoCount' : int,
-            'ImageCount' : int
+            'VideoCount' : lambda x: x or 0,
+            'ImageCount' : lambda x: x or 0
         },
         'Video' : {
             'Width' : int,
             'Height' : int,
             'BitRate' : lambda *x:int(float(*x)),
             'FrameRate' : float,
+            'FrameCount' : int,
             'Duration' : int,
             'PixelAspectRatio' : float,
             'Format' : str
@@ -117,10 +113,15 @@ class LowlevelTestcase(unittest.TestCase):
         meta = mediainfo.get_metadata(file, **self.query)
         self.assert_(meta['General'][type_ + 'Count'])
         self.assert_(meta['General'][not_type + 'Count'] == 0)
+        missing_keys = []
         for attr, attrtype in self.query[type_].iteritems():
-            self.assertEqual(type(meta[type_][attr]), type(attrtype()))
-            self.assert_(meta[type_][attr], 'missing %s:%s key' % (type_, attr))
+            if meta[type_][attr] is None:
+                missing_keys.append(attr)
+            else:
+                self.assertEqual(type(meta[type_][attr]), type(attrtype()))
         self.assert_(not_type not in meta)
+        if missing_keys:
+            self.fail("Missing keys: %r" % missing_keys)
 
     def _test_invalid(self, file):
         meta = mediainfo.get_metadata(file, **self.query)
@@ -132,15 +133,15 @@ class LowlevelTestcase(unittest.TestCase):
     # the following, ugly and hackish code generates test methods
     # for each file, the file name as method name (sanitized).
     # Just look away.
-    for type_, not_type, files in [('Video', 'Image', VIDEO_TEST_FILES),
-                                   ('Image', 'Video', IMAGE_TEST_FILES)]:
+    for type_, not_type in [('Video', 'Image'), ('Image', 'Video')]:
+        files = TESTFILES[type_.lower()+'s']
         for file in files:
             tpl = (type_, not_type, file)
             file = slugify(basename(file))
             exec('def test_%s(self):' \
                  '    self._test_valid(*%r)' % (file, tpl))
 
-    for file in INVALID_TEST_FILES:
+    for file in TESTFILES['invalid']:
         exec('def test_%s(self):' \
              '    self._test_invalid(%r)' \
              % (slugify(basename(file)), file))

@@ -65,10 +65,11 @@ def _parse_inform_output(output, inform):
                     # if `value` is an empty string, try `param_type` without
                     # arguments. useful e.g. for `param_type` == `int`,
                     # which does not allow empty strings as argument.
-                    try:
-                        value = param_type()
-                    except (ValueError, TypeError):
-                        _raise(*value_error)
+                    #try:
+                    #    value = param_type()
+                    #except (ValueError, TypeError):
+                    #    _raise(*value_error)
+                    value = None
                 else:
                     _raise(*value_error)
             sec[param_name] = value
